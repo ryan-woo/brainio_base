@@ -1,3 +1,5 @@
+import functools
+import operator
 from collections import OrderedDict, defaultdict
 
 import numpy as np
@@ -34,10 +36,8 @@ class DataAssembly(DataArray):
     def _join_group_coords(self, dim, group_coord_names, delimiter, multi_group_name):
         tmp_assy = self.copy()
         group_coords = [tmp_assy.coords[c] for c in group_coord_names]
-        multi_group_coord = []
-        for coords in zip(*group_coords):
-            multi_group_coord.append(delimiter.join([str(c.values) for c in coords]))
-        tmp_assy.coords[multi_group_name] = dim, multi_group_coord
+        to_join = [x for y in group_coords for x in (y, delimiter)][:-1]
+        tmp_assy.coords[multi_group_name] = functools.reduce(operator.add, to_join)
         tmp_assy.set_index(append=True, inplace=True, **{dim: multi_group_name})
         return tmp_assy
 
@@ -53,7 +53,6 @@ class DataAssembly(DataArray):
         """
         partial workaround to keep multi-indexes and scalar coords
         https://github.com/pydata/xarray/issues/1491, https://github.com/pydata/xarray/pull/1426
-
         this method might slow things down, use with caution
         """
         indexer_dims = {index: self[index].dims for index in indexers}
