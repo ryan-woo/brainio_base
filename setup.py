@@ -10,9 +10,7 @@ requirements = [
     "numpy",
     "pandas",
     "xarray",
-]
-
-test_requirements = [
+    # test_requirements
     "pytest",
 ]
 
@@ -39,5 +37,4 @@ setup(
         'Programming Language :: Python :: 3.7',
     ],
     test_suite='tests',
-    tests_require=test_requirements
 )
