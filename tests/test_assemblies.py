@@ -12,7 +12,7 @@ class TestMultiGroupby:
     def test_single_dimension_int(self):
         d = DataAssembly([[1, 2, 3], [4, 5, 6]], coords={'a': [1, 2], 'b': [3, 4, 5]}, dims=['a', 'b'])
         g = d.multi_groupby(['a']).mean()
-        assert g.equals(DataAssembly([2., 5.], coords={'a': ['1', '2']}, dims=['a']))
+        assert g.equals(DataAssembly([2., 5.], coords={'a': [1, 2]}, dims=['a']))
 
     def test_single_coord(self):
         d = DataAssembly([[1, 2, 3], [4, 5, 6]],
