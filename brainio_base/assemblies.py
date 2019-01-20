@@ -1,5 +1,3 @@
-import functools
-import operator
 from collections import OrderedDict, defaultdict
 
 import numpy as np
@@ -26,18 +24,37 @@ class DataAssembly(DataArray):
         gather_indexes(self)
 
     def multi_groupby(self, group_coord_names, *args, **kwargs):
-        delimiter = "|"
         multi_group_name = "multi_group"
         dim = self._dim_of_group_coords(group_coord_names)
-        tmp_assy = self._join_group_coords(dim, group_coord_names, delimiter, multi_group_name)
+        tmp_assy = self._join_group_coords(dim, group_coord_names, multi_group_name)
         result = tmp_assy.groupby(multi_group_name, *args, **kwargs)
-        return GroupbyBridge(result, self, dim, group_coord_names, delimiter, multi_group_name)
+        return GroupbyBridge(result, self, dim, group_coord_names, multi_group_name)
 
-    def _join_group_coords(self, dim, group_coord_names, delimiter, multi_group_name):
+    def _join_group_coords(self, dim, group_coord_names, multi_group_name):
+        class MultiCoord:
+            # this is basically a list of key-values, but not treated as a list to avoid xarray complaints
+            def __init__(self, values):
+                self.values = tuple(values) if isinstance(values, list) else values
+
+            def __eq__(self, other):
+                return len(self.values) == len(other.values) and \
+                       all(v1 == v2 for v1, v2 in zip(self.values, other.values))
+
+            def __lt__(self, other):
+                return self.values < other.values
+
+            def __hash__(self):
+                return hash(self.values)
+
+            def __repr__(self):
+                return repr(self.values)
+
         tmp_assy = self.copy()
-        group_coords = [tmp_assy.coords[c] for c in group_coord_names]
-        to_join = [x for y in group_coords for x in (y, delimiter)][:-1]
-        tmp_assy.coords[multi_group_name] = functools.reduce(operator.add, to_join)
+        group_coords = [tmp_assy.coords[c].values.tolist() for c in group_coord_names]
+        multi_group_coord = []
+        for coords in zip(*group_coords):
+            multi_group_coord.append(MultiCoord(coords))
+        tmp_assy.coords[multi_group_name] = dim, multi_group_coord
         tmp_assy.set_index(append=True, inplace=True, **{dim: multi_group_name})
         return tmp_assy
 
@@ -145,12 +162,11 @@ def gather_indexes(xr_data):
 class GroupbyBridge(object):
     """Wraps an xarray GroupBy object to allow grouping on multiple coordinates.   """
 
-    def __init__(self, groupby, assembly, dim, group_coord_names, delimiter, multi_group_name):
+    def __init__(self, groupby, assembly, dim, group_coord_names, multi_group_name):
         self.groupby = groupby
         self.assembly = assembly
         self.dim = dim
         self.group_coord_names = group_coord_names
-        self.delimiter = delimiter
         self.multi_group_name = multi_group_name
 
     def __getattr__(self, attr):
@@ -169,9 +185,8 @@ class GroupbyBridge(object):
         return wrapper
 
     def split_group_coords(self, result):
-        split_coords = np.array(
-            list(map(lambda s: s.split(self.delimiter) if isinstance(s, str) else [s],
-                     result.coords[self.multi_group_name].values))).T
+        split_coords = [multi_coord.values for multi_coord in result.coords[self.multi_group_name].values]
+        split_coords = list(map(list, zip(*split_coords)))  # transpose
         for coord_name, coord in zip(self.group_coord_names, split_coords):
             result.coords[coord_name] = (self.multi_group_name, coord)
         result.reset_index(self.multi_group_name, drop=True, inplace=True)

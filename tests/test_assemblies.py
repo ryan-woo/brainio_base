@@ -35,6 +35,17 @@ class TestMultiGroupby:
                                      coords={'a': ('multi_dim', ['a', 'a']), 'b': ('multi_dim', ['a', 'b'])},
                                      dims=['multi_dim']))
 
+    def test_int_multi_coord(self):
+        d = DataAssembly([1, 2, 3, 4, 5, 6],
+                         coords={'a': ('multi_dim', [1, 1, 1, 1, 1, 1]),
+                                 'b': ('multi_dim', ['a', 'a', 'a', 'b', 'b', 'b']),
+                                 'c': ('multi_dim', ['a', 'b', 'c', 'd', 'e', 'f'])},
+                         dims=['multi_dim'])
+        g = d.multi_groupby(['a', 'b']).mean()
+        assert g.equals(DataAssembly([2., 5.],
+                                     coords={'a': ('multi_dim', [1, 1]), 'b': ('multi_dim', ['a', 'b'])},
+                                     dims=['multi_dim']))
+
     @pytest.mark.skip(reason="not implemented")
     def test_multi_dim(self):
         d = DataAssembly([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]],
