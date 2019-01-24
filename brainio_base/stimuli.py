@@ -2,7 +2,7 @@ import pandas as pd
 
 
 class StimulusSet(pd.DataFrame):
-    _metadata = ["get_image"]
+    _metadata = ["get_image", "image_paths"]
 
     @property
     def _constructor(self):
