@@ -1,5 +1,6 @@
 from collections import OrderedDict, defaultdict
 
+import itertools
 import numpy as np
 import xarray as xr
 from xarray import DataArray
@@ -65,6 +66,60 @@ class DataAssembly(DataArray):
             return dims[0]
         else:
             raise GroupbyError("All coordinates for grouping must be associated with the same single dimension.  ")
+
+    def multi_dim_apply(self, groups, apply):
+        # align
+        groups = sorted(groups, key=lambda group: self.dims.index(self[group].dims[0]))
+        # build indices
+        groups = {group: np.unique(self[group]) for group in groups}
+        group_dims = {self[group].dims: group for group in groups}
+        indices = defaultdict(lambda: defaultdict(list))
+        result_indices = defaultdict(lambda: defaultdict(list))
+        for group in groups:
+            for index, value in enumerate(self[group].values):
+                indices[group][value].append(index)
+                # result_indices
+                index = max(itertools.chain(*result_indices[group].values())) + 1 \
+                    if len(result_indices[group]) > 0 else 0
+                result_indices[group][value].append(index)
+
+        coords = {coord: (dims, value) for coord, dims, value in walk_coords(self)}
+
+        def simplify(value):
+            return value.item() if value.size == 1 else value
+
+        def indexify(dict_indices):
+            return tuple((i,) if isinstance(i, int) else tuple(i) for i in dict_indices.values())
+
+        # group and apply
+        # making this a DataArray right away and then inserting through .loc would slow things down
+        shapes = {group: len(list(itertools.chain(*indices.values()))) for group, indices in result_indices.items()}
+        result = np.zeros(list(shapes.values()))
+        result_coords = {coord: (dims, np.array([None] * shapes[group_dims[dims]]))
+                         for coord, (dims, value) in coords.items()}
+        for values in itertools.product(*groups.values()):
+            group_values = dict(zip(groups.keys(), values))
+            self_indices = {group: indices[group][value] for group, value in group_values.items()}
+            values_indices = indexify(self_indices)
+            cells = self.values[values_indices]  # using DataArray would slow things down. thus we pass coords as kwargs
+            cells = simplify(cells)
+            cell_coords = {coord: (dims, value[self_indices[group_dims[dims]]])
+                           for coord, (dims, value) in coords.items()}
+            cell_coords = {coord: (dims, simplify(value)) for coord, (dims, value) in cell_coords.items()}
+
+            # ignore dims when passing to function
+            passed_coords = {coord: value for coord, (dims, value) in cell_coords.items()}
+            merge = apply(cells, **passed_coords)
+            result_idx = {group: result_indices[group][value] for group, value in group_values.items()}
+            result[indexify(result_idx)] = merge
+            for coord, (dims, value) in cell_coords.items():
+                assert dims == result_coords[coord][0]
+                coord_index = result_idx[group_dims[dims]]
+                result_coords[coord][1][coord_index] = value
+
+        # re-package
+        result = type(self)(result, coords=result_coords, dims=list(itertools.chain(*group_dims.keys())))
+        return result
 
     def multisel(self, method=None, tolerance=None, drop=False, **indexers):
         """
