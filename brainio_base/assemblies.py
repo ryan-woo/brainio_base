@@ -56,7 +56,7 @@ class DataAssembly(DataArray):
         for coords in zip(*group_coords):
             multi_group_coord.append(MultiCoord(coords))
         tmp_assy.coords[multi_group_name] = dim, multi_group_coord
-        tmp_assy.set_index(append=True, inplace=True, **{dim: multi_group_name})
+        tmp_assy = tmp_assy.set_index(append=True, **{dim: multi_group_name})
         return tmp_assy
 
     def _dim_of_group_coords(self, group_coord_names):
@@ -256,7 +256,7 @@ class GroupbyError(Exception):
 
 def merge_data_arrays(data_arrays):
     # https://stackoverflow.com/a/50125997/2225200
-    merged = xr.merge([similarity.rename('z') for similarity in data_arrays])['z'].rename(None)
+    merged = xr.merge((data_array.rename('z') for data_array in data_arrays))['z'].rename(None)
     # ensure same class
     return type(data_arrays[0])(merged)
 
