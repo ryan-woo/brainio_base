@@ -1,8 +1,8 @@
-from collections import OrderedDict, defaultdict
-
 import itertools
 import numpy as np
+import pandas as pd
 import xarray as xr
+from collections import OrderedDict, defaultdict
 from xarray import DataArray
 
 
@@ -21,8 +21,14 @@ class DataAssembly(DataArray):
     an analysis or benchmarking task.  """
 
     def __init__(self, *args, **kwargs):
+        xr_data = DataArray(*args, **kwargs)
+        index_coords = gather_indexes(xr_data)
+        if len(args) > 1:
+            args = list(args)
+            args[1] = index_coords
+        else:
+            kwargs['coords'] = index_coords
         super(DataAssembly, self).__init__(*args, **kwargs)
-        gather_indexes(self)
 
     def multi_groupby(self, group_coord_names, *args, **kwargs):
         multi_group_name = "multi_group"
@@ -83,7 +89,8 @@ class DataAssembly(DataArray):
                     if len(result_indices[group]) > 0 else 0
                 result_indices[group][value].append(index)
 
-        coords = {coord: (dims, value) for coord, dims, value in walk_coords(self)}
+        coords = {coord: (dims, value) for coord, dims, value in walk_coords(self)
+                  if len(value.shape) > 0}  # ignore empty columns
 
         def simplify(value):
             return value.item() if value.size == 1 else value
@@ -208,15 +215,14 @@ def coords_for_dim(xr_data, dim, exclude_indexes=True):
 
 
 def gather_indexes(xr_data):
-    """This is only necessary as long as xarray cannot persist MultiIndex to netCDF.  """
-    coords_d = {}
+    """ Create indexes for all coordinates (xarray does not index coordinates by default). """
+    index_coords = {}
     for dim in xr_data.dims:
-        coords = coords_for_dim(xr_data, dim)
-        if coords:
-            coords_d[dim] = list(coords.keys())
-    if coords_d:
-        xr_data.set_index(append=True, inplace=True, **coords_d)
-    return xr_data
+        dim_coords = coords_for_dim(xr_data, dim)
+        if dim_coords:
+            index_coords[dim] = pd.MultiIndex.from_arrays([v.values for v in dim_coords.values()],
+                                                          names=dim_coords.keys())
+    return index_coords
 
 
 class GroupbyBridge(object):
