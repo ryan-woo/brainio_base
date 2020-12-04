@@ -3,7 +3,13 @@ from collections import OrderedDict, defaultdict
 import itertools
 import numpy as np
 import xarray as xr
-from xarray import DataArray
+from xarray import DataArray, IndexVariable
+
+
+def is_fastpath(*args, **kwargs):
+    """checks whether a set of args and kwargs would be interpreted by DataArray.__init__"""
+    n = 7 # maximum length of args if all arguments to DataArray are positional (as of 0.16.1)
+    return ("fastpath" in kwargs and kwargs["fastpath"]) or (len(args) >= n and args[n-1])
 
 
 class DataPoint(object):
@@ -20,11 +26,25 @@ class DataAssembly(DataArray):
     """A DataAssembly represents a set of data a researcher wishes to work with for
     an analysis or benchmarking task.  """
 
+    __slots__ = ()
+
     def __init__(self, *args, **kwargs):
-        super(DataAssembly, self).__init__(*args, **kwargs)
-        gather_indexes(self)
+        if is_fastpath(*args, **kwargs):
+            # DataArray.__init__ follows a very different code path if fastpath=True
+            # gather_indexes is not necessary in those cases
+            super(DataAssembly, self).__init__(*args, **kwargs)
+        else:
+            # We call gather_indexes so we can guarantee that DataAssemblies will always have all metadata as indexes.
+            # set_index, and thus gather_indexes, cannot operate on self in-place, it can only return a new object.
+            # We take advantage of the almost-idempotence of DataArray.__init__ to gather indexes on a temporary
+            # object and then initialize self with that.
+            temp = DataArray(*args, **kwargs)
+            temp = gather_indexes(temp)
+            super(DataAssembly, self).__init__(temp)
 
     def multi_groupby(self, group_coord_names, *args, **kwargs):
+        if len(group_coord_names) < 2:
+            return self.groupby(group_coord_names[0], *args, **kwargs)
         multi_group_name = "multi_group"
         dim = self._dim_of_group_coords(group_coord_names)
         tmp_assy = self._join_group_coords(dim, group_coord_names, multi_group_name)
@@ -178,29 +198,29 @@ class DataAssembly(DataArray):
 
 class BehavioralAssembly(DataAssembly):
     """A BehavioralAssembly is a DataAssembly containing behavioral data.  """
-    pass
+    __slots__ = ()
 
 
 class NeuroidAssembly(DataAssembly):
     """A NeuroidAssembly is a DataAssembly containing data recorded from either neurons
     or neuron analogues.  """
-    pass
+    __slots__ = ()
 
 
 class NeuronRecordingAssembly(NeuroidAssembly):
     """A NeuronRecordingAssembly is a NeuroidAssembly containing data recorded from neurons.  """
-    pass
+    __slots__ = ()
 
 
 class ModelFeaturesAssembly(NeuroidAssembly):
     """A ModelFeaturesAssembly is a NeuroidAssembly containing data captured from nodes in
     a machine learning model.  """
-    pass
+    __slots__ = ()
 
 
 class PropertyAssembly(DataAssembly):
     """A PropertyAssembly is a DataAssembly containing single neuronal properties data.  """
-    pass
+    __slots__ = ()
 
 
 def coords_for_dim(xr_data, dim, exclude_indexes=True):
@@ -221,7 +241,7 @@ def gather_indexes(xr_data):
         if coords:
             coords_d[dim] = list(coords.keys())
     if coords_d:
-        xr_data.set_index(append=True, inplace=True, **coords_d)
+        xr_data = xr_data.set_index(append=True, **coords_d)
     return xr_data
 
 
@@ -255,8 +275,9 @@ class GroupbyBridge(object):
         split_coords = list(map(list, zip(*split_coords)))  # transpose
         for coord_name, coord in zip(self.group_coord_names, split_coords):
             result.coords[coord_name] = (self.multi_group_name, coord)
-        result.reset_index(self.multi_group_name, drop=True, inplace=True)
-        result.set_index(append=True, inplace=True, **{self.multi_group_name: list(self.group_coord_names)})
+        result_type = type(result)
+        result = xr.DataArray(result).reset_index(self.multi_group_name, drop=True)
+        result = result_type(result.set_index(append=True, **{self.multi_group_name: list(self.group_coord_names)}))
         result = result.rename({self.multi_group_name: self.dim})
         return result
 
@@ -282,13 +303,22 @@ def walk_coords(assembly):
     """
     coords = {}
 
-    for name, values in assembly.coords.items():
-        # partly borrowed from xarray.core.formatting#summarize_coord
-        is_index = name in assembly.dims
-        if is_index and values.variable.level_names:
-            for level in values.variable.level_names:
+    for name in assembly.coords.variables:
+        values = assembly.coords.variables[name]
+        is_index = isinstance(values, IndexVariable)
+        if is_index and values.level_names:
+            for level in values.level_names:
                 level_values = assembly.coords[level]
                 yield level, level_values.dims, level_values.values
         else:
             yield name, values.dims, values.values
     return coords
+
+
+def get_levels(assembly):
+    levels = []
+    for key, value in assembly.coords.variables.items():
+        if isinstance(value, IndexVariable) and value.level_names:
+            for level in value.level_names:
+                levels.append(level)
+    return levels
