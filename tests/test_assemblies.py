@@ -1,4 +1,5 @@
 import pytest
+import pandas as pd
 import xarray as xr
 from xarray import DataArray
 
@@ -122,7 +123,38 @@ class TestSubclassing:
         with pytest.raises(TypeError) as te:
             d = xr.DataArray(0, None, None, None, None, None, None, False)
         assert "but 9" in str(te.value)
-        # If they move fastpath to another spot in the list I guess it's tough.  
+        # If they move fastpath to another spot in the list I guess it's tough.
+
+    def test_align(self):
+        name = "foo",
+        data = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12], [13, 14, 15], [16, 17, 18]]
+        mi1 = pd.MultiIndex.from_arrays([
+            ['alpha', 'alpha', 'beta', 'beta', 'beta', 'beta'],
+            [1, 2, 3, 4, 5, 6]
+        ], names=["up", "down"])
+        mi2 = pd.MultiIndex.from_arrays([
+            ['alpha', 'alpha', 'beta', 'beta', 'gamma', 'gamma'],
+            [1, 2, 3, 4, 5, 6]
+        ], names=["up", "down"])
+        da1 = DataArray(
+            name=name,
+            data=data,
+            coords={
+                'a': mi1,
+                'b': ['x', 'y', 'z']
+            },
+            dims=['a', 'b']
+        )
+        da2 = DataArray(
+            name=name,
+            data=data,
+            coords={
+                'a': mi2,
+                'b': ['x', 'y', 'z']
+            },
+            dims=['a', 'b']
+        )
+        xr.align(da1, da2, join="outer")
 
 
 class TestIndex:
