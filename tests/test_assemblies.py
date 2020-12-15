@@ -154,7 +154,19 @@ class TestSubclassing:
             },
             dims=['a', 'b']
         )
-        xr.align(da1, da2, join="outer")
+        assert hasattr(da1, "up")
+        assert da1.coords.variables["a"].level_names == ["up", "down"]
+        assert da1["a"].variable.level_names == ["up", "down"]
+        assert da1["up"] is not None
+        aligned1, aligned2 = xr.align(da1, da2, join="outer")
+        assert hasattr(aligned1, "up")
+        assert aligned1.coords.variables["a"].level_names == ["up", "down"]
+        assert aligned1["a"].variable.level_names == ["up", "down"]
+        assert aligned1["up"] is not None
+        assert hasattr(aligned2, "up")
+        assert aligned2.coords.variables["a"].level_names == ["up", "down"]
+        assert aligned2["a"].variable.level_names == ["up", "down"]
+        assert aligned2["up"] is not None
 
 
 class TestIndex:
