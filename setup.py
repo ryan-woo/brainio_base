@@ -9,7 +9,7 @@ with open('README.md') as readme_file:
 requirements = [
     "numpy",
     "pandas",
-    "xarray",
+    "xarray==0.16.1", # a bug introduced in 0.16.2 causes align to handle MultiIndex wrong
     # test_requirements
     "pytest",
 ]
